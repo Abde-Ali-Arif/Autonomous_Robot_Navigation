@@ -64,3 +64,58 @@ def test_path_planner_lifecycle():
     assert new_path is not None
     assert planner.has_replanned
     assert planner.replan_count == 1
+
+
+def test_emergency_stop_rotation_recovery():
+    follower = WaypointFollower()
+    waypoints = [(0.0, 0.0), (0.0, 1.0)]  # Waypoint is to the left (+Y)
+    follower.set_path(waypoints)
+
+    # Robot facing forward along +X (theta = 0), waypoint is along +Y (theta_des = pi/2)
+    # Under emergency_stop, linear velocity must be 0.0 while angular velocity > 0 to rotate
+    control = follower.compute_velocities(robot_x=0.0, robot_y=0.0, robot_theta=0.0, emergency_stop=True)
+
+    assert control["linear_vel"] == 0.0, "Linear velocity must be 0 during emergency stop"
+    assert control["angular_vel"] > 0.0, "Angular velocity must be positive to turn toward +Y waypoint"
+    assert control["left_speed"] < 0.0, "Left wheel should reverse during in-place counter-clockwise turn"
+    assert control["right_speed"] > 0.0, "Right wheel should move forward during in-place counter-clockwise turn"
+
+
+def test_navigation_controller_recover_from_blocked():
+    from unittest.mock import MagicMock
+    from communication.protocol import RobotState
+    from controllers.autonomous_controller.navigation_controller import NavigationController
+    from controllers.autonomous_controller.robot_state import TelemetryTracker
+
+    mock_motors = MagicMock()
+    mock_lidar = MagicMock()
+    telemetry = TelemetryTracker()
+
+    nav = NavigationController(mock_motors, mock_lidar, telemetry)
+    nav.telemetry.goal_pos = (2.0, 2.0)
+    nav.state = RobotState.BLOCKED
+
+    # Attempt recovery from free location (0.0, 0.0)
+    recovered = nav.recover_from_blocked(current_x=0.0, current_y=0.0)
+    assert recovered, "Recovery should find a valid path from (0, 0) to (2, 2)"
+    assert nav.state == RobotState.NAVIGATING
+    assert len(nav.follower.waypoints) > 0
+
+
+def test_navigation_controller_goal_validation():
+    from unittest.mock import MagicMock
+    from controllers.autonomous_controller.navigation_controller import NavigationController
+    from controllers.autonomous_controller.robot_state import TelemetryTracker
+
+    nav = NavigationController(MagicMock(), MagicMock(), TelemetryTracker())
+
+    # Out of boundary
+    assert not nav.set_goal(3.5, 0.0), "Goal outside arena should be rejected"
+    assert not nav.set_goal(0.0, -3.2), "Goal outside arena should be rejected"
+
+    # Overlapping static obstacle (obs_box_1 at -0.8, 0.0)
+    assert not nav.set_goal(-0.8, 0.0), "Goal overlapping static obstacle should be rejected"
+
+    # Valid goals
+    assert nav.set_goal(2.0, 2.0), "Valid goal should be accepted"
+    assert nav.set_goal(-2.0, 2.0), "Valid goal should be accepted"

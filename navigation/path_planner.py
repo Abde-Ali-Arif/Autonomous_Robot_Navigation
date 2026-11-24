@@ -50,6 +50,7 @@ class PathPlanner:
             return None
 
         if blocking_obs:
+            self.occupancy_grid.remove_dynamic_obstacle()
             self.occupancy_grid.add_dynamic_obstacle(blocking_obs[0], blocking_obs[1])
 
         new_path = self.astar.plan(current_pos, self.goal_pos)

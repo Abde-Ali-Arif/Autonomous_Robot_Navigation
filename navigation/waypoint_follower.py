@@ -41,14 +41,50 @@ class WaypointFollower:
             return []
         return self.waypoints[self.current_idx:]
 
+    def update_target_waypoint(self, robot_x: float, robot_y: float):
+        """Advance current waypoint index through reached or passed waypoints."""
+        if not self.waypoints or self.current_idx >= len(self.waypoints):
+            return
+
+        final_wp = self.waypoints[-1]
+        dist_to_goal = math.hypot(final_wp[0] - robot_x, final_wp[1] - robot_y)
+        if dist_to_goal <= GOAL_TOLERANCE:
+            self.current_idx = len(self.waypoints) - 1
+            return
+
+        while self.current_idx < len(self.waypoints) - 1:
+            curr_wp = self.waypoints[self.current_idx]
+            next_wp = self.waypoints[self.current_idx + 1]
+
+            dist_to_curr = math.hypot(curr_wp[0] - robot_x, curr_wp[1] - robot_y)
+            if dist_to_curr <= WAYPOINT_TOLERANCE:
+                self.current_idx += 1
+                continue
+
+            # Check if robot has already passed curr_wp along the trajectory towards next_wp
+            dx = next_wp[0] - curr_wp[0]
+            dy = next_wp[1] - curr_wp[1]
+            l2 = dx * dx + dy * dy
+            if l2 > 1e-4:
+                proj = ((robot_x - curr_wp[0]) * dx + (robot_y - curr_wp[1]) * dy) / l2
+                dist_to_next = math.hypot(next_wp[0] - robot_x, next_wp[1] - robot_y)
+                if proj >= 0.85 or dist_to_next < dist_to_curr:
+                    self.current_idx += 1
+                    continue
+            break
+
     def compute_velocities(self,
                            robot_x: float,
                            robot_y: float,
                            robot_theta: float,
-                           slow_down: bool = False) -> Dict[str, Any]:
+                           slow_down: bool = False,
+                           emergency_stop: bool = False) -> Dict[str, Any]:
         """
         Compute required left and right motor speeds (rad/s) and navigation status.
+        If emergency_stop is True, linear velocity is zeroed while allowing in-place rotation.
         """
+        self.update_target_waypoint(robot_x, robot_y)
+
         if not self.waypoints or self.current_idx >= len(self.waypoints):
             self.goal_reached = True
             return {
@@ -77,18 +113,9 @@ class WaypointFollower:
                 "dist_to_goal": round(dist_to_goal, 3)
             }
 
-        # 2. Advance through any already reached intermediate waypoints
-        while self.current_idx < len(self.waypoints) - 1:
-            curr_wp = self.waypoints[self.current_idx]
-            dist_to_curr = math.hypot(curr_wp[0] - robot_x, curr_wp[1] - robot_y)
-            if dist_to_curr <= WAYPOINT_TOLERANCE:
-                self.current_idx += 1
-            else:
-                break
-
         target_wp = self.waypoints[self.current_idx]
 
-        # 3. Heading error calculation
+        # 2. Heading error calculation
         target_heading = math.atan2(target_wp[1] - robot_y, target_wp[0] - robot_x)
         heading_err = target_heading - robot_theta
         # Normalize to [-pi, pi]
@@ -99,7 +126,11 @@ class WaypointFollower:
         v_linear_target = nominal_wheel_speed * self.r  # Linear velocity m/s
 
         # Control Law:
-        if abs(heading_err) > 0.45:  # ~25 degrees error: turn predominantly in place
+        if emergency_stop:
+            # Emergency Stop: zero forward velocity, allow pure in-place rotation away from obstacle
+            v_lin = 0.0
+            omega = self.kp * heading_err
+        elif abs(heading_err) > 0.45:  # ~25 degrees error: turn predominantly in place
             v_lin = 0.04 if abs(heading_err) < 0.8 else 0.0
             omega = self.kp * heading_err
         else:

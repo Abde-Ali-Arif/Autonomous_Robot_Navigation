@@ -1,0 +1,494 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+
+WorldInfo {
+  info [
+    "Autonomous Mobile Robot Indoor Navigation Simulation"
+    "B.Tech Engineering Major Project"
+    "Differential Drive Robot with 360 Lidar and Dynamic Obstacle Avoidance"
+  ]
+  title "Autonomous Mobile Robot Navigation"
+  basicTimeStep 32
+  coordinateSystem "ENU"
+}
+
+Viewpoint {
+  orientation 0.25 0.35 -0.90 2.2
+  position -0.5 -5.8 5.2
+  near 0.05
+}
+
+TexturedBackground {
+  luminosity 0.8
+}
+
+TexturedBackgroundLight {
+  luminosity 0.8
+}
+
+DirectionalLight {
+  direction 0.2 0.3 -1
+  intensity 1.5
+  castShadows TRUE
+}
+
+DirectionalLight {
+  direction -0.4 -0.2 -0.8
+  intensity 0.8
+}
+
+# -------------------------------------------------------------
+# Arena Floor (6.0m x 6.0m)
+# -------------------------------------------------------------
+DEF ARENA_FLOOR Solid {
+  translation 0 0 -0.01
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.22 0.24 0.28
+        roughness 0.4
+        metalness 0.1
+      }
+      geometry Box {
+        size 6.0 6.0 0.02
+      }
+    }
+  ]
+  name "floor"
+  boundingObject Box {
+    size 6.0 6.0 0.02
+  }
+}
+
+# -------------------------------------------------------------
+# Outer Boundary Walls
+# -------------------------------------------------------------
+DEF WALL_NORTH Solid {
+  translation 0 3.05 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.88
+        roughness 0.6
+      }
+      geometry Box {
+        size 6.2 0.1 0.5
+      }
+    }
+  ]
+  name "wall_north"
+  boundingObject Box {
+    size 6.2 0.1 0.5
+  }
+}
+
+DEF WALL_SOUTH Solid {
+  translation 0 -3.05 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.88
+        roughness 0.6
+      }
+      geometry Box {
+        size 6.2 0.1 0.5
+      }
+    }
+  ]
+  name "wall_south"
+  boundingObject Box {
+    size 6.2 0.1 0.5
+  }
+}
+
+DEF WALL_EAST Solid {
+  translation 3.05 0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.88
+        roughness 0.6
+      }
+      geometry Box {
+        size 0.1 6.2 0.5
+      }
+    }
+  ]
+  name "wall_east"
+  boundingObject Box {
+    size 0.1 6.2 0.5
+  }
+}
+
+DEF WALL_WEST Solid {
+  translation -3.05 0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.88
+        roughness 0.6
+      }
+      geometry Box {
+        size 0.1 6.2 0.5
+      }
+    }
+  ]
+  name "wall_west"
+  boundingObject Box {
+    size 0.1 6.2 0.5
+  }
+}
+
+# -------------------------------------------------------------
+# Static Indoor Obstacles (Cabinets, Pillars, Desks)
+# -------------------------------------------------------------
+DEF STATIC_OBS_1 Solid {
+  translation -0.8 0.0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.20 0.45 0.70
+        roughness 0.3
+      }
+      geometry Box {
+        size 0.6 0.6 0.5
+      }
+    }
+  ]
+  name "obs_box_1"
+  boundingObject Box {
+    size 0.6 0.6 0.5
+  }
+}
+
+DEF STATIC_OBS_2 Solid {
+  translation 0.8 -0.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.20 0.45 0.70
+        roughness 0.3
+      }
+      geometry Box {
+        size 0.6 0.6 0.5
+      }
+    }
+  ]
+  name "obs_box_2"
+  boundingObject Box {
+    size 0.6 0.6 0.5
+  }
+}
+
+DEF STATIC_OBS_3 Solid {
+  translation 0.0 1.2 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.20 0.45 0.70
+        roughness 0.3
+      }
+      geometry Box {
+        size 0.8 0.5 0.5
+      }
+    }
+  ]
+  name "obs_box_3"
+  boundingObject Box {
+    size 0.8 0.5 0.5
+  }
+}
+
+DEF STATIC_OBS_4 Solid {
+  translation -1.2 -1.0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.20 0.45 0.70
+        roughness 0.3
+      }
+      geometry Box {
+        size 0.5 0.5 0.5
+      }
+    }
+  ]
+  name "obs_box_4"
+  boundingObject Box {
+    size 0.5 0.5 0.5
+  }
+}
+
+# -------------------------------------------------------------
+# Dynamic Obstacle (Staged below arena floor at z = -5.0)
+# Translated into robot path by Webots Controller Supervisor API.
+# Static solid (no gravity falling) so LiDAR detects it accurately.
+# -------------------------------------------------------------
+DEF DYNAMIC_OBSTACLE Solid {
+  translation 0 0 -5.0
+  rotation 0 0 1 0
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.95 0.25 0.15
+        roughness 0.2
+        metalness 0.3
+        emissiveColor 0.25 0.05 0.0
+      }
+      geometry Box {
+        size 0.45 0.45 0.45
+      }
+    }
+  ]
+  name "dynamic_obstacle"
+  boundingObject Box {
+    size 0.45 0.45 0.45
+  }
+}
+
+# -------------------------------------------------------------
+# Differential Drive Autonomous Mobile Robot
+# -------------------------------------------------------------
+DEF ROBOT Robot {
+  translation -2.0 -2.0 0.04
+  rotation 0 0 1 0
+  children [
+    # Main Body Chassis (Raised slightly for 1.5cm ground clearance)
+    Pose {
+      translation 0 0 0.015
+      children [
+        DEF CHASSIS Shape {
+          appearance PBRAppearance {
+            baseColor 0.92 0.92 0.94
+            roughness 0.2
+            metalness 0.5
+          }
+          geometry Cylinder {
+            height 0.06
+            radius 0.14
+          }
+        }
+      ]
+    }
+
+    # Robot Top Lid
+    Pose {
+      translation 0 0 0.048
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.15 0.15 0.18
+            roughness 0.3
+          }
+          geometry Cylinder {
+            height 0.006
+            radius 0.13
+          }
+        }
+      ]
+    }
+
+    # Heading Indicator Arrow (Pointing forward along +X)
+    Pose {
+      translation 0.08 0 0.053
+      rotation 0 0 1 1.5708
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.8 0.2
+          }
+          geometry Box {
+            size 0.02 0.08 0.005
+          }
+        }
+      ]
+    }
+
+    # Left Wheel Joint
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 0.08 0
+      }
+      device [
+        RotationalMotor {
+          name "left_wheel_motor"
+          maxVelocity 6.28
+        }
+      ]
+      endPoint DEF LEFT_WHEEL Solid {
+        translation 0 0.08 0
+        rotation 1 0 0 1.5708
+        name "left_wheel"
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.025
+              radius 0.04
+            }
+          }
+        ]
+        boundingObject Cylinder {
+          height 0.025
+          radius 0.04
+        }
+        physics Physics {
+          density -1
+          mass 0.4
+        }
+      }
+    }
+
+    # Right Wheel Joint
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 -0.08 0
+      }
+      device [
+        RotationalMotor {
+          name "right_wheel_motor"
+          maxVelocity 6.28
+        }
+      ]
+      endPoint DEF RIGHT_WHEEL Solid {
+        translation 0 -0.08 0
+        rotation 1 0 0 1.5708
+        name "right_wheel"
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.025
+              radius 0.04
+            }
+          }
+        ]
+        boundingObject Cylinder {
+          height 0.025
+          radius 0.04
+        }
+        physics Physics {
+          density -1
+          mass 0.4
+        }
+      }
+    }
+
+    # Front Passive Caster Wheel (Low-friction ball touching floor at z=0)
+    DEF CASTER_FRONT Solid {
+      translation 0.10 0 -0.02
+      name "caster_front"
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.7 0.7 0.7
+            metalness 0.9
+            roughness 0.1
+          }
+          geometry Sphere {
+            radius 0.02
+          }
+        }
+      ]
+      boundingObject Sphere {
+        radius 0.02
+      }
+      physics Physics {
+        density -1
+        mass 0.1
+      }
+    }
+
+    # Rear Passive Caster Wheel (Low-friction ball touching floor at z=0)
+    DEF CASTER_REAR Solid {
+      translation -0.10 0 -0.02
+      name "caster_rear"
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.7 0.7 0.7
+            metalness 0.9
+            roughness 0.1
+          }
+          geometry Sphere {
+            radius 0.02
+          }
+        }
+      ]
+      boundingObject Sphere {
+        radius 0.02
+      }
+      physics Physics {
+        density -1
+        mass 0.1
+      }
+    }
+
+    # Virtual Planar 360-degree LiDAR Sensor
+    Lidar {
+      translation 0 0 0.08
+      rotation 0 0 1 0
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.1 0.1
+            roughness 0.2
+            metalness 0.8
+          }
+          geometry Cylinder {
+            height 0.04
+            radius 0.035
+          }
+        }
+      ]
+      name "lidar"
+      horizontalResolution 360
+      fieldOfView 6.2831853
+      numberOfLayers 1
+      minRange 0.06
+      maxRange 3.5
+      defaultFrequency 10
+    }
+
+    # GPS for Ground-Truth Localization
+    GPS {
+      name "gps"
+    }
+
+    # Inertial Unit for Ground-Truth Heading
+    InertialUnit {
+      name "inertial_unit"
+    }
+  ]
+
+  name "diff_robot"
+  controller "autonomous_controller"
+  supervisor TRUE
+
+  boundingObject Pose {
+    translation 0 0 0.015
+    children [
+      Cylinder {
+        height 0.06
+        radius 0.14
+      }
+    ]
+  }
+
+  physics Physics {
+    density -1
+    mass 3.5
+    centerOfMass [
+      0 0 -0.01
+    ]
+  }
+}

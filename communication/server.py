@@ -92,9 +92,9 @@ class SimulationServer:
                 break
 
         # 2. File commands
-        file_cmd = self._read_command_file()
-        if file_cmd:
-            cmds.append(file_cmd)
+        file_cmds = self._read_command_file()
+        if file_cmds:
+            cmds.extend(file_cmds)
 
         return cmds
 
@@ -108,17 +108,21 @@ class SimulationServer:
         except Exception as e:
             logger.debug(f"Telemetry file write error: {e}")
 
-    def _read_command_file(self) -> Optional[Dict[str, Any]]:
+    def _read_command_file(self) -> List[Dict[str, Any]]:
         """Read and consume pending command file."""
         if not COMMAND_FILE.exists():
-            return None
+            return []
         try:
             with open(COMMAND_FILE, "r", encoding="utf-8") as f:
-                cmd = json.load(f)
+                data = json.load(f)
             COMMAND_FILE.unlink(missing_ok=True)
-            return cmd
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                return [data]
+            return []
         except Exception:
-            return None
+            return []
 
     def _run_server(self):
         """Background TCP socket listener loop."""

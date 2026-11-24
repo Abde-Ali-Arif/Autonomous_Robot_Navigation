@@ -48,7 +48,7 @@ class LidarProcessor:
             logger.debug(f"Error fetching range image: {e}")
         return self.last_ranges
 
-    def process(self, robot_x: float, robot_y: float, robot_theta: float) -> Dict[str, Any]:
+    def process(self, robot_x: float, robot_y: float, robot_theta: float, occupancy_grid=None) -> Dict[str, Any]:
         """Run obstacle detection pipeline on latest scan."""
         ranges = self.get_ranges()
-        return self.detector.process_scan(ranges, robot_x, robot_y, robot_theta)
+        return self.detector.process_scan(ranges, robot_x, robot_y, robot_theta, occupancy_grid=occupancy_grid)

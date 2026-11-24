@@ -48,9 +48,12 @@ def launch_webots():
         return None
 
     print(f"[LAUNCHER] Starting Webots simulation: {WBT_FILE.name}")
-    # Prepare environment with WEBOTS_HOME
+    # Prepare environment with WEBOTS_HOME and Python paths
     env = os.environ.copy()
-    env["WEBOTS_HOME"] = str(Path(webots_bin).parents[3]) if "msys64" in webots_bin else str(Path(webots_bin).parent)
+    webots_home = str(Path(webots_bin).parents[3]) if "msys64" in webots_bin else str(Path(webots_bin).parent)
+    env["WEBOTS_HOME"] = webots_home
+    env["PYTHONPATH"] = f"{webots_home}\\lib\\controller\\python;{BASE_DIR};{env.get('PYTHONPATH', '')}"
+    env["PATH"] = f"{BASE_DIR}\\.venv\\Scripts;{BASE_DIR}\\.venv;{webots_home}\\msys64\\mingw64\\bin;{webots_home}\\lib\\controller;{env.get('PATH', '')}"
 
     proc = subprocess.Popen([webots_bin, str(WBT_FILE)], env=env)
     return proc

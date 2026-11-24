@@ -59,3 +59,27 @@ def test_astar_replan_with_dynamic_obstacle(planner):
     for pt in new_path:
         dist_to_dyn = ((pt[0] - 0.0)**2 + (pt[1] - 0.0)**2)**0.5
         assert dist_to_dyn > 0.25, "Replanned path must avoid the dynamic obstacle!"
+
+
+@pytest.mark.parametrize("destination", [
+    (2.0, 2.0),
+    (-2.0, 2.0),
+    (2.2, 0.0),
+    (0.0, 0.0),
+    (2.0, -2.0)
+])
+def test_astar_multiple_destinations_reachable(planner, destination):
+    start = (-2.0, -2.0)
+    path = planner.plan(start, destination)
+    assert path is not None, f"Destination {destination} should be reachable from {start}."
+    assert len(path) >= 2
+    assert path[-1] == pytest.approx(destination, abs=0.15)
+
+
+def test_astar_soft_start_and_goal_recovery(planner):
+    # Place start slightly inside inflated boundary margin
+    start_near_wall = (-2.65, -2.0)  # Near west wall
+    goal = (2.0, 2.0)
+    path = planner.plan(start_near_wall, goal)
+    assert path is not None, "A* should find nearest free cell and successfully plan path."
+    assert path[-1] == pytest.approx(goal, abs=0.15)

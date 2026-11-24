@@ -66,8 +66,41 @@ class OccupancyGrid:
         if not self.is_inside(gx, gy):
             return False
         val = self.grid[gy, gx]
-        # Occupied or Dynamic Obstacle is strictly non-traversable
-        return val < INFLATED_OBSTACLE_VALUE
+        return val < OCCUPIED_CELL_VALUE
+
+    def is_static_obstacle(self, x: float, y: float, margin_cells: int = 1) -> bool:
+        """
+        Check if world coordinate (x, y) belongs to known static walls or static obstacles.
+        Used to filter LiDAR detections so static geometry never triggers false dynamic replanning.
+        """
+        gx, gy = self.world_to_grid(x, y)
+        if not self.is_inside(gx, gy):
+            return True  # Outside bounds is static perimeter wall
+
+        # Check the cell and immediate margin for sensor tolerance
+        for dy in range(-margin_cells, margin_cells + 1):
+            for dx in range(-margin_cells, margin_cells + 1):
+                nx, ny = gx + dx, gy + dy
+                if self.is_inside(nx, ny) and self.static_mask[ny, nx]:
+                    return True
+        return False
+
+    def find_nearest_free_cell(self, gx: int, gy: int, max_radius: int = 4) -> Tuple[int, int]:
+        """
+        Find closest traversable cell if a coordinate falls slightly inside an obstacle boundary.
+        Ensures A* never fails due to 1-pixel contact with an inflated boundary.
+        """
+        if self.is_inside(gx, gy) and self.grid[gy, gx] < OCCUPIED_CELL_VALUE:
+            return gx, gy
+
+        for r in range(1, max_radius + 1):
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    if abs(dx) == r or abs(dy) == r:
+                        nx, ny = gx + dx, gy + dy
+                        if self.is_inside(nx, ny) and self.grid[ny, nx] < OCCUPIED_CELL_VALUE:
+                            return nx, ny
+        return gx, gy
 
     def load_static_obstacles(self, obstacles: List[Dict[str, Any]]):
         """Burn static boundary walls and indoor obstacle boxes into the grid."""
@@ -134,8 +167,12 @@ class OccupancyGrid:
 
     def add_dynamic_obstacle(self, x: float, y: float, size_x: float = 0.45, size_y: float = 0.45):
         """Mark a new dynamic obstacle detected or injected in the environment."""
-        min_x, max_x = x - size_x / 2.0, x + size_x / 2.0
-        min_y, max_y = y - size_y / 2.0, y + size_y / 2.0
+        # Clamp coordinates to safe arena boundaries
+        cx = max(self.x_min + 0.4, min(self.x_max - 0.4, x))
+        cy = max(self.y_min + 0.4, min(self.y_max - 0.4, y))
+
+        min_x, max_x = cx - size_x / 2.0, cx + size_x / 2.0
+        min_y, max_y = cy - size_y / 2.0, cy + size_y / 2.0
 
         gx1, gy1 = self.world_to_grid(min_x, min_y)
         gx2, gy2 = self.world_to_grid(max_x, max_y)
@@ -161,9 +198,12 @@ class OccupancyGrid:
         self._apply_inflation()
 
     def is_world_pos_valid(self, x: float, y: float) -> bool:
-        """Validate if a continuous world coordinate is safe (free of obstacles)."""
+        """Validate if a continuous world coordinate is safe (free of static and dynamic obstacles)."""
+        # Strict boundary check (stay inside walls with clearance)
+        if not (-2.60 <= x <= 2.60 and -2.60 <= y <= 2.60):
+            return False
+
         gx, gy = self.world_to_grid(x, y)
         if not self.is_inside(gx, gy):
             return False
-        # Cannot be inside a hard obstacle or heavily inflated boundary
         return self.grid[gy, gx] < OCCUPIED_CELL_VALUE

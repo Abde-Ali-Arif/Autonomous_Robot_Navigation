@@ -49,3 +49,37 @@ def test_route_blocked_detection(detector):
     assert centroid is not None
     assert centroid[0] == pytest.approx(0.5, abs=0.1)
     assert centroid[1] == pytest.approx(0.0, abs=0.1)
+
+
+def test_route_blocked_in_segment_middle(detector):
+    # Obstacle located at (1.0, 0.0) in the middle of a 2-meter long segment from (0.0, 0.0) to (2.0, 0.0)
+    front_points = [(1.0, 0.05), (1.02, -0.02)]
+    # Waypoints with NO intermediate vertex at (1.0, 0.0)
+    waypoints = [(0.0, 0.0), (2.0, 0.0)]
+
+    is_blocked, centroid = detector.is_route_blocked(front_points, waypoints, check_radius=0.35)
+    assert is_blocked, "Must detect obstacle placed in the middle of a continuous path segment."
+    assert centroid is not None
+    assert centroid[0] == pytest.approx(1.0, abs=0.1)
+
+
+def test_static_obstacle_filtered_from_front_points(detector):
+    from navigation.occupancy_grid import OccupancyGrid
+    grid = OccupancyGrid()
+
+    # Place robot at (-1.2, -1.8) facing +Y (North, theta = pi/2)
+    # Right in front of it is static box 4 at (-1.2, -1.0), distance 0.8m
+    robot_x, robot_y, robot_theta = -1.2, -1.8, math.pi / 2.0
+    ranges = [3.5] * 360
+    # Beam index 180 is 0 relative angle (straight ahead)
+    ranges[180] = 0.80
+
+    # Without occupancy grid: point gets added to front_points
+    res_without_grid = detector.process_scan(ranges, robot_x, robot_y, robot_theta, occupancy_grid=None)
+    assert len(res_without_grid["front_points"]) > 0
+
+    # With occupancy grid: static obstacle point should be filtered out from front_points!
+    res_with_grid = detector.process_scan(ranges, robot_x, robot_y, robot_theta, occupancy_grid=grid)
+    assert len(res_with_grid["front_points"]) == 0, "Static obstacle should not be reported as dynamic front obstacle"
+    # But min_front_dist is still preserved for collision safety!
+    assert res_with_grid["min_front_dist"] <= 0.85

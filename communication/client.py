@@ -87,11 +87,13 @@ class SimulationClient:
                 except Exception:
                     pass
 
-        # 2. Resilient Fallback to File-IPC
+        # 2. Resilient Fallback to File-IPC (only if file was updated recently, < 4.0s)
         if TELEMETRY_FILE.exists():
             try:
-                with open(TELEMETRY_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                mtime = os.path.getmtime(TELEMETRY_FILE)
+                if (time.time() - mtime) < 4.0:
+                    with open(TELEMETRY_FILE, "r", encoding="utf-8") as f:
+                        return json.load(f)
             except Exception:
                 return None
 
@@ -127,9 +129,23 @@ class SimulationClient:
                     "payload": payload or {},
                     "timestamp": time.time()
                 }
+                # Read existing pending commands so rapid clicks append rather than overwrite
+                existing = []
+                if COMMAND_FILE.exists():
+                    try:
+                        with open(COMMAND_FILE, "r", encoding="utf-8") as f:
+                            c = json.load(f)
+                            if isinstance(c, list):
+                                existing = c
+                            elif isinstance(c, dict):
+                                existing = [c]
+                    except Exception:
+                        existing = []
+                existing.append(cmd_dict)
+
                 tmp_file = LOGS_DIR / "command.json.tmp"
                 with open(tmp_file, "w", encoding="utf-8") as f:
-                    json.dump(cmd_dict, f)
+                    json.dump(existing, f)
                 os.replace(tmp_file, COMMAND_FILE)
                 return True
             except Exception as e:

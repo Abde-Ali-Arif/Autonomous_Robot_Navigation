@@ -4,6 +4,7 @@ Coordinates Path Planning, Waypoint Tracking, and Dynamic LiDAR-based Obstacle R
 """
 
 import logging
+import time
 from typing import Dict, Any, Tuple, Optional, List
 
 from communication.protocol import RobotState
@@ -32,6 +33,11 @@ class NavigationController:
         self.detected_obstacles_count: int = 0
         self.dynamic_obstacle_pos: Optional[Tuple[float, float]] = None
 
+        self.last_replan_time: float = 0.0
+        self.last_blocked_recovery_attempt: float = 0.0
+        self.replan_cooldown: float = 1.0  # Minimum seconds between replans
+        self.recovery_interval: float = 1.5  # Seconds between recovery attempts when BLOCKED
+
     def set_goal(self, gx: float, gy: float) -> bool:
         """Set new destination and validate reachability."""
         if not self.planner.occupancy_grid.is_world_pos_valid(gx, gy):
@@ -39,11 +45,15 @@ class NavigationController:
             return False
 
         self.telemetry.goal_pos = (round(gx, 2), round(gy, 2))
-        if self.state == RobotState.IDLE:
-            # Plan initial preview path
-            path = self.planner.plan_initial_path(self.telemetry.start_pos, (gx, gy))
+        if self.state in [RobotState.IDLE, RobotState.BLOCKED]:
+            start_coord = self.telemetry.start_pos if self.state == RobotState.IDLE else (self.telemetry.x, self.telemetry.y)
+            path = self.planner.plan_initial_path(start_coord, (gx, gy))
             if path:
                 self.follower.set_path(path)
+                if self.state == RobotState.BLOCKED:
+                    self.state = RobotState.NAVIGATING
+                    self.telemetry.state = self.state
+                    self.telemetry.status_message = "New goal assigned. Resuming navigation."
                 return True
         return True
 
@@ -70,6 +80,27 @@ class NavigationController:
             self.motors.stop()
             return False
 
+    def recover_from_blocked(self, current_x: Optional[float] = None, current_y: Optional[float] = None) -> bool:
+        """Attempt to recover from BLOCKED state by calculating a new path to the goal."""
+        cx = current_x if current_x is not None else self.telemetry.x
+        cy = current_y if current_y is not None else self.telemetry.y
+        goal = self.telemetry.goal_pos
+
+        if not goal:
+            return False
+
+        logger.info(f"Attempting recovery from BLOCKED state at ({cx:.2f}, {cy:.2f}) to goal {goal}...")
+        path = self.planner.astar.plan((cx, cy), goal)
+        if path:
+            self.follower.set_path(path)
+            self.planner.current_path = list(path)
+            self.state = RobotState.NAVIGATING
+            self.telemetry.state = self.state
+            self.telemetry.status_message = "Obstacle cleared. Resuming navigation to destination."
+            logger.info("Recovery successful: navigation resumed.")
+            return True
+        return False
+
     def pause_navigation(self):
         """Pause motion."""
         if self.state == RobotState.NAVIGATING:
@@ -84,6 +115,8 @@ class NavigationController:
             self.state = RobotState.NAVIGATING
             self.telemetry.state = self.state
             self.telemetry.status_message = "Resuming Navigation."
+        elif self.state == RobotState.BLOCKED:
+            self.recover_from_blocked()
 
     def stop_navigation(self):
         """Halt navigation."""
@@ -122,53 +155,62 @@ class NavigationController:
         # 1. Update pose telemetry
         self.telemetry.update_pose(current_x, current_y, current_theta)
 
-        # 2. Process LiDAR sensor data
-        scan_result = self.lidar.process(current_x, current_y, current_theta)
+        # 2. Process LiDAR sensor data (pass occupancy grid to filter static obstacles)
+        scan_result = self.lidar.process(current_x, current_y, current_theta, occupancy_grid=self.planner.occupancy_grid)
         min_front_dist = scan_result["min_front_dist"]
         emergency_stop = scan_result["emergency_stop"]
         slow_down = scan_result["slow_down"]
         front_points = scan_result["front_points"]
 
+        now = time.time()
+
         if self.state == RobotState.NAVIGATING:
+            self.follower.update_target_waypoint(current_x, current_y)
             remaining_wps = self.follower.get_remaining_waypoints()
 
-            # 3. Check for dynamic obstacle obstructing the path
-            is_blocked, obs_centroid = self.lidar.detector.is_route_blocked(front_points, remaining_wps)
+            # 3. Check for dynamic obstacle obstructing the path corridor
+            is_blocked, obs_centroid = self.lidar.detector.is_route_blocked(
+                front_points, remaining_wps, robot_pos=(current_x, current_y)
+            )
 
             if is_blocked and obs_centroid is not None:
-                logger.info(f"LiDAR detected dynamic obstacle at {obs_centroid}! Initiating replanning.")
-                self.detected_obstacles_count += 1
-                self.dynamic_obstacle_pos = obs_centroid
+                # Debounce replanning
+                time_since_last_replan = now - self.last_replan_time
+                if time_since_last_replan >= self.replan_cooldown:
+                    self.last_replan_time = now
+                    logger.info(f"LiDAR detected dynamic obstacle at {obs_centroid}! Initiating replanning.")
+                    self.detected_obstacles_count += 1
+                    self.dynamic_obstacle_pos = obs_centroid
 
-                # Halt immediately during replanning calculation
-                self.motors.stop()
-                self.state = RobotState.REPLANNING
-                self.telemetry.state = self.state
-                self.telemetry.status_message = f"Obstacle detected at {obs_centroid}. Replanning A* route..."
-
-                # Execute A* Replanning
-                new_path = self.planner.replan((current_x, current_y), obs_centroid)
-                if new_path:
-                    self.follower.set_path(new_path)
-                    self.state = RobotState.NAVIGATING
-                    self.telemetry.state = self.state
-                    self.telemetry.status_message = "New obstacle-free path calculated. Resuming movement."
-                    logger.info("Successfully recalculated new collision-free trajectory.")
-                else:
-                    self.state = RobotState.BLOCKED
-                    self.telemetry.state = self.state
-                    self.telemetry.status_message = "Path fully blocked! No collision-free route exists."
+                    # Halt immediately during replanning calculation
                     self.motors.stop()
-                    return
+                    self.state = RobotState.REPLANNING
+                    self.telemetry.state = self.state
+                    self.telemetry.status_message = f"Obstacle detected at {obs_centroid}. Replanning A* route..."
 
-            # Emergency Stop Safety Check
-            if emergency_stop:
-                self.motors.stop()
-                self.telemetry.status_message = "Safety Alert: Obstacle too close! Emergency halt."
-                return
+                    # Execute A* Replanning
+                    new_path = self.planner.replan((current_x, current_y), obs_centroid)
+                    if new_path:
+                        self.follower.set_path(new_path)
+                        self.state = RobotState.NAVIGATING
+                        self.telemetry.state = self.state
+                        self.telemetry.status_message = "New obstacle-free path calculated. Resuming movement."
+                        logger.info("Successfully recalculated new collision-free trajectory.")
+                    else:
+                        self.state = RobotState.BLOCKED
+                        self.telemetry.state = self.state
+                        self.telemetry.status_message = "Path fully blocked! Waiting for clearance or new goal..."
+                        self.motors.stop()
+                        return
 
-            # 4. Compute kinematic wheel commands
-            control = self.follower.compute_velocities(current_x, current_y, current_theta, slow_down=slow_down)
+            # 4. Compute kinematic wheel commands (with emergency_stop allowing in-place rotation away from obstacle)
+            control = self.follower.compute_velocities(
+                current_x, current_y, current_theta,
+                slow_down=slow_down,
+                emergency_stop=emergency_stop
+            )
+            if emergency_stop and not control["goal_reached"]:
+                self.telemetry.status_message = "Obstacle close: Rotating in place away from obstacle..."
 
             if control["goal_reached"]:
                 self.motors.stop()
@@ -181,7 +223,19 @@ class NavigationController:
                 self.telemetry.left_wheel_speed = control["left_speed"]
                 self.telemetry.right_wheel_speed = control["right_speed"]
 
-        elif self.state in [RobotState.IDLE, RobotState.PAUSED, RobotState.GOAL_REACHED, RobotState.BLOCKED]:
+        elif self.state == RobotState.BLOCKED:
+            self.motors.stop()
+            self.telemetry.linear_velocity = 0.0
+            self.telemetry.angular_velocity = 0.0
+            self.telemetry.left_wheel_speed = 0.0
+            self.telemetry.right_wheel_speed = 0.0
+
+            # Periodic auto-recovery check
+            if now - self.last_blocked_recovery_attempt >= self.recovery_interval:
+                self.last_blocked_recovery_attempt = now
+                self.recover_from_blocked(current_x, current_y)
+
+        elif self.state in [RobotState.IDLE, RobotState.PAUSED, RobotState.GOAL_REACHED]:
             self.motors.stop()
             self.telemetry.linear_velocity = 0.0
             self.telemetry.angular_velocity = 0.0

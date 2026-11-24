@@ -1,6 +1,7 @@
-#VRML_SIM R2023b utf8
+#VRML_SIM R2025a utf8
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 
 WorldInfo {
   info [
@@ -20,6 +21,10 @@ Viewpoint {
 }
 
 TexturedBackground {
+  luminosity 0.8
+}
+
+TexturedBackgroundLight {
   luminosity 0.8
 }
 
@@ -216,8 +221,9 @@ DEF STATIC_OBS_4 Solid {
 }
 
 # -------------------------------------------------------------
-# Dynamic Obstacle (Initially staged below floor at z = -5.0)
-# Translated into robot path by Webots Controller Supervisor API
+# Dynamic Obstacle (Staged below arena floor at z = -5.0)
+# Translated into robot path by Webots Controller Supervisor API.
+# Static solid (no gravity falling) so LiDAR detects it accurately.
 # -------------------------------------------------------------
 DEF DYNAMIC_OBSTACLE Solid {
   translation 0 0 -5.0
@@ -239,10 +245,85 @@ DEF DYNAMIC_OBSTACLE Solid {
   boundingObject Box {
     size 0.45 0.45 0.45
   }
-  physics Physics {
-    density -1
-    mass 100.0
-  }
+}
+
+# -------------------------------------------------------------
+# Target Destination Visual Goal Marker
+# Displays target waypoint on the arena floor (non-colliding).
+# Position is updated dynamically by Supervisor controller.
+# -------------------------------------------------------------
+DEF TARGET_GOAL Solid {
+  translation 2.0 2.0 0.005
+  rotation 0 0 1 0
+  children [
+    Pose {
+      translation 0 0 0.002
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.85 0.3
+            roughness 0.2
+            metalness 0.1
+            emissiveColor 0.2 0.9 0.4
+          }
+          geometry Cylinder {
+            height 0.004
+            radius 0.22
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 0 0.005
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.95 0.85 0.1
+            roughness 0.2
+            metalness 0.2
+            emissiveColor 0.9 0.8 0.1
+          }
+          geometry Cylinder {
+            height 0.004
+            radius 0.12
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 0 0.20
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.85 0.3
+            roughness 0.2
+            metalness 0.5
+            emissiveColor 0.1 0.8 0.3
+          }
+          geometry Cylinder {
+            height 0.40
+            radius 0.015
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 0 0.42
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1.0 0.9 0.1
+            roughness 0.1
+            emissiveColor 1.0 0.8 0.0
+          }
+          geometry Sphere {
+            radius 0.04
+          }
+        }
+      ]
+    }
+  ]
+  name "target_goal"
 }
 
 # -------------------------------------------------------------
@@ -252,22 +333,27 @@ DEF ROBOT Robot {
   translation -2.0 -2.0 0.04
   rotation 0 0 1 0
   children [
-    # Main Body Chassis
-    DEF CHASSIS Shape {
-      appearance PBRAppearance {
-        baseColor 0.92 0.92 0.94
-        roughness 0.2
-        metalness 0.5
-      }
-      geometry Cylinder {
-        height 0.08
-        radius 0.14
-      }
+    # Main Body Chassis (Raised slightly for 1.5cm ground clearance)
+    Pose {
+      translation 0 0 0.015
+      children [
+        DEF CHASSIS Shape {
+          appearance PBRAppearance {
+            baseColor 0.92 0.92 0.94
+            roughness 0.2
+            metalness 0.5
+          }
+          geometry Cylinder {
+            height 0.06
+            radius 0.14
+          }
+        }
+      ]
     }
 
     # Robot Top Lid
     Pose {
-      translation 0 0 0.045
+      translation 0 0 0.048
       children [
         Shape {
           appearance PBRAppearance {
@@ -275,16 +361,16 @@ DEF ROBOT Robot {
             roughness 0.3
           }
           geometry Cylinder {
-            height 0.01
+            height 0.006
             radius 0.13
           }
         }
       ]
     }
 
-    # Heading Indicator Arrow
+    # Heading Indicator Arrow (Pointing forward along +X)
     Pose {
-      translation 0.08 0 0.052
+      translation 0.08 0 0.053
       rotation 0 0 1 1.5708
       children [
         Shape {
@@ -376,7 +462,7 @@ DEF ROBOT Robot {
       }
     }
 
-    # Front Passive Caster Wheel (Low-friction ball)
+    # Front Passive Caster Wheel (Low-friction ball touching floor at z=0)
     DEF CASTER_FRONT Solid {
       translation 0.10 0 -0.02
       name "caster_front"
@@ -401,7 +487,7 @@ DEF ROBOT Robot {
       }
     }
 
-    # Rear Passive Caster Wheel
+    # Rear Passive Caster Wheel (Low-friction ball touching floor at z=0)
     DEF CASTER_REAR Solid {
       translation -0.10 0 -0.02
       name "caster_rear"
@@ -467,9 +553,14 @@ DEF ROBOT Robot {
   controller "autonomous_controller"
   supervisor TRUE
 
-  boundingObject Cylinder {
-    height 0.08
-    radius 0.14
+  boundingObject Pose {
+    translation 0 0 0.015
+    children [
+      Cylinder {
+        height 0.06
+        radius 0.14
+      }
+    ]
   }
 
   physics Physics {

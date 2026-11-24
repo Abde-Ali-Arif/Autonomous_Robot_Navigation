@@ -10,10 +10,14 @@ import sys
 import time
 from pathlib import Path
 
-# Add project root to sys.path
+# Add project root and virtual environment site-packages to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+venv_site_packages = PROJECT_ROOT / ".venv" / "Lib" / "site-packages"
+if venv_site_packages.exists() and str(venv_site_packages) not in sys.path:
+    sys.path.insert(0, str(venv_site_packages))
 
 from controller import Supervisor
 
@@ -52,9 +56,12 @@ def main():
     if imu:
         imu.enable(time_step)
 
-    # 3. Retrieve Dynamic Obstacle and Robot Nodes via Supervisor API
+    # 3. Retrieve Dynamic Obstacle, Target Goal Marker, and Robot Nodes via Supervisor API
     dynamic_obs_node = robot.getFromDef("DYNAMIC_OBSTACLE")
     dynamic_obs_trans_field = dynamic_obs_node.getField("translation") if dynamic_obs_node else None
+
+    target_goal_node = robot.getFromDef("TARGET_GOAL")
+    target_goal_trans_field = target_goal_node.getField("translation") if target_goal_node else None
 
     robot_node = robot.getSelf()
     robot_trans_field = robot_node.getField("translation") if robot_node else None
@@ -62,6 +69,10 @@ def main():
 
     dynamic_obstacle_active = False
     current_dynamic_obs_coords = None
+
+    # Set initial visual goal marker location on arena floor
+    if target_goal_trans_field:
+        target_goal_trans_field.setSFVec3f([DEFAULT_GOAL_POS[0], DEFAULT_GOAL_POS[1], 0.005])
 
     # 4. Navigation Controller
     nav_controller = NavigationController(motors, lidar, telemetry)
@@ -120,23 +131,37 @@ def main():
 
                 elif cmd_type == CommandType.SET_GOAL.value or cmd_type == "SET_GOAL":
                     goal = payload.get("goal", DEFAULT_GOAL_POS)
-                    nav_controller.set_goal(float(goal[0]), float(goal[1]))
+                    gx, gy = float(goal[0]), float(goal[1])
+                    nav_controller.set_goal(gx, gy)
+                    if target_goal_trans_field:
+                        target_goal_trans_field.setSFVec3f([gx, gy, 0.005])
+                        print(f"[Supervisor] Moved visual goal marker to ({gx:.2f}, {gy:.2f})")
 
                 elif cmd_type == CommandType.ADD_OBSTACLE.value or cmd_type == "ADD_OBSTACLE":
                     # Determine dynamic obstacle location
-                    ox = payload.get("x", DEFAULT_DYNAMIC_OBSTACLE["x"])
-                    oy = payload.get("y", DEFAULT_DYNAMIC_OBSTACLE["y"])
-
-                    # If obstacle position not specified, place it 0.7m ahead along robot's current heading
-                    if "x" not in payload and "y" not in payload and nav_controller.follower.waypoints:
+                    if "x" in payload and "y" in payload:
+                        ox = float(payload["x"])
+                        oy = float(payload["y"])
+                    else:
+                        # Place obstacle ~0.9m ahead along current path / heading
+                        ox = None
+                        oy = None
                         rem_wps = nav_controller.follower.get_remaining_waypoints()
-                        if len(rem_wps) >= 2:
-                            target_wp = rem_wps[1]
-                            ox = round(target_wp[0], 2)
-                            oy = round(target_wp[1], 2)
-                        else:
-                            ox = round(current_x + 0.7 * math.cos(current_theta), 2)
-                            oy = round(current_y + 0.7 * math.sin(current_theta), 2)
+                        for wp in rem_wps:
+                            dist = math.hypot(wp[0] - current_x, wp[1] - current_y)
+                            if 0.70 <= dist <= 1.30:
+                                ox = round(wp[0], 2)
+                                oy = round(wp[1], 2)
+                                break
+                        if ox is None or oy is None:
+                            # Fallback using heading direction
+                            heading = current_theta
+                            ox = round(current_x + 0.90 * math.cos(heading), 2)
+                            oy = round(current_y + 0.90 * math.sin(heading), 2)
+
+                    # Clamp inside arena walls to prevent placing outside bounds
+                    ox = max(-2.40, min(2.40, ox))
+                    oy = max(-2.40, min(2.40, oy))
 
                     # Physically translate obstacle into the 3D Webots arena floor!
                     if dynamic_obs_trans_field:
@@ -153,6 +178,9 @@ def main():
                         current_dynamic_obs_coords = None
                         nav_controller.planner.occupancy_grid.remove_dynamic_obstacle()
                         print("[Supervisor] Removed dynamic obstacle from arena.")
+                    # Trigger immediate recovery if robot was BLOCKED
+                    if nav_controller.state == RobotState.BLOCKED:
+                        nav_controller.recover_from_blocked(current_x, current_y)
 
                 elif cmd_type == CommandType.RESET.value or cmd_type == "RESET":
                     # 1. Reset dynamic obstacle below floor
@@ -161,16 +189,20 @@ def main():
                         dynamic_obstacle_active = False
                         current_dynamic_obs_coords = None
 
-                    # 2. Reset robot position in Webots world
+                    # 2. Reset visual goal marker to default
+                    if target_goal_trans_field:
+                        target_goal_trans_field.setSFVec3f([DEFAULT_GOAL_POS[0], DEFAULT_GOAL_POS[1], 0.005])
+
+                    # 3. Reset robot position in Webots world
                     if robot_trans_field:
                         robot_trans_field.setSFVec3f([DEFAULT_START_POS[0], DEFAULT_START_POS[1], 0.04])
                     if robot_rot_field:
                         robot_rot_field.setSFRotation([0.0, 0.0, 1.0, 0.0])
 
-                    # 3. Reset physics velocity
+                    # 4. Reset physics velocity
                     robot_node.resetPhysics()
 
-                    # 4. Reset navigation stack
+                    # 5. Reset navigation stack
                     nav_controller.reset(
                         (DEFAULT_START_POS[0], DEFAULT_START_POS[1]),
                         (DEFAULT_GOAL_POS[0], DEFAULT_GOAL_POS[1])
